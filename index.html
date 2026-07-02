@@ -46,6 +46,11 @@
     position: absolute; bottom: 14px; left: 34px;
     font-size: 11px; color: rgba(200,230,255,.45); letter-spacing: .05em;
   }
+  #warn {
+    position: absolute; top: 58%; left: 50%; transform: translateX(-50%);
+    color: #ff5252; font-size: 22px; letter-spacing: .2em; display: none;
+    text-shadow: 0 0 12px rgba(255,82,82,.8); animation: pulse .5s infinite;
+  }
   #banner {
     position: absolute; top: 34%; left: 50%; transform: translateX(-50%);
     text-align: center; color: var(--lime); font-size: 40px;
@@ -89,6 +94,7 @@
     <div id="vec" class="mono">v = ⟨ 0.0, 0.0, 0.0 ⟩</div>
   </div>
   <div id="state" class="mono">∅ AIRBORNE</div>
+  <div id="warn" class="mono">⚠ RELEASE W — STRAFE ONLY (A/D)</div>
   <div id="pos" class="mono"></div>
   <div id="banner" class="math">∎ Q.E.D.<small class="mono"></small></div>
 </div>
@@ -589,7 +595,7 @@ function finish() {
 
 /* ================= HUD ================= */
 const el = id => document.getElementById(id);
-const hud = { timer: el('timer'), best: el('best'), speed: el('speed'), vec: el('vec'), state: el('state'), pos: el('pos') };
+const hud = { timer: el('timer'), best: el('best'), speed: el('speed'), vec: el('vec'), state: el('state'), pos: el('pos'), warn: el('warn') };
 function fmt(t) {
   const m = Math.floor(t / 60), s = t - m * 60;
   return `${m}:${s.toFixed(3).padStart(6, '0')}`;
@@ -617,6 +623,7 @@ function updateHUD() {
   }
   const glow = Math.min(hsp / 45, 1);
   hud.speed.style.color = `rgb(${223 + glow * 32}, ${246 - glow * 120}, ${255 - glow * 87})`;
+  hud.warn.style.display = player.surfing && keys.has('KeyW') ? 'block' : 'none';
 }
 
 /* ================= MAIN LOOP ================= */
