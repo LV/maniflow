@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MANIFLOW — surf the planes</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --cyan: #35e8ff;
+    --magenta: #ff3fa8;
+    --lime: #8dff53;
+    --ink: #04040d;
+  }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); }
+  canvas { display: block; }
+  #hud, #overlay { position: fixed; inset: 0; pointer-events: none; user-select: none; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .math { font-family: "STIX Two Math", "Cambria Math", Georgia, serif; font-style: italic; }
+
+  /* ---------- HUD ---------- */
+  #crosshair {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    color: var(--cyan); font-size: 18px; opacity: .9; text-shadow: 0 0 6px var(--cyan);
+  }
+  #timer {
+    position: absolute; top: 22px; left: 50%; transform: translateX(-50%);
+    color: #e8f6ff; font-size: 26px; letter-spacing: .08em;
+    text-shadow: 0 0 10px rgba(53,232,255,.6);
+  }
+  #best {
+    position: absolute; top: 54px; left: 50%; transform: translateX(-50%);
+    color: rgba(141,255,83,.8); font-size: 13px; letter-spacing: .1em;
+  }
+  #speedbox {
+    position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%);
+    text-align: center; color: #dff6ff;
+  }
+  #speed { font-size: 44px; text-shadow: 0 0 14px rgba(53,232,255,.75); line-height: 1; }
+  #speed .unit { font-size: 15px; opacity: .55; }
+  #vec { font-size: 13px; opacity: .75; margin-top: 6px; letter-spacing: .04em; }
+  #state {
+    position: absolute; bottom: 34px; left: 34px;
+    font-size: 15px; letter-spacing: .12em;
+  }
+  #pos {
+    position: absolute; bottom: 14px; left: 34px;
+    font-size: 11px; color: rgba(200,230,255,.45); letter-spacing: .05em;
+  }
+  #banner {
+    position: absolute; top: 34%; left: 50%; transform: translateX(-50%);
+    text-align: center; color: var(--lime); font-size: 40px;
+    text-shadow: 0 0 18px rgba(141,255,83,.7); display: none; white-space: nowrap;
+  }
+  #banner small { display: block; font-size: 16px; color: #dff6ff; margin-top: 10px; }
+
+  /* ---------- start overlay ---------- */
+  #overlay {
+    pointer-events: auto; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    background:
+      radial-gradient(ellipse at center, rgba(6,8,26,.72) 0%, rgba(3,3,12,.94) 75%),
+      repeating-linear-gradient(0deg, transparent 0 39px, rgba(53,232,255,.05) 39px 40px),
+      repeating-linear-gradient(90deg, transparent 0 39px, rgba(53,232,255,.05) 39px 40px);
+  }
+  #overlay .card { text-align: center; color: #dff6ff; max-width: 640px; padding: 0 24px; }
+  #overlay h1 {
+    font-size: 64px; margin: 0; letter-spacing: .22em; color: #fff; font-weight: 500;
+    text-shadow: 0 0 24px rgba(53,232,255,.9), 0 0 60px rgba(255,63,168,.4);
+  }
+  #overlay .sub { color: rgba(223,246,255,.6); letter-spacing: .3em; font-size: 13px; margin-top: 8px; }
+  #overlay .eq {
+    font-size: 26px; margin: 34px 0; color: var(--cyan);
+    text-shadow: 0 0 12px rgba(53,232,255,.6);
+  }
+  #overlay .keys { font-size: 14px; line-height: 2; color: rgba(223,246,255,.85); }
+  #overlay .keys b { color: var(--magenta); font-weight: 600; }
+  #overlay .hint { margin-top: 26px; font-size: 13px; color: rgba(141,255,83,.75); font-style: italic; }
+  #overlay .click { margin-top: 30px; font-size: 15px; letter-spacing: .25em; color: #fff; animation: pulse 1.6s infinite; }
+  @keyframes pulse { 0%,100% { opacity: .35 } 50% { opacity: 1 } }
+</style>
+</head>
+<body>
+<div id="hud">
+  <div id="crosshair" class="mono">+</div>
+  <div id="timer" class="mono">0:00.000</div>
+  <div id="best" class="mono"></div>
+  <div id="speedbox">
+    <div id="speed" class="mono">0.0<span class="unit"> u/s</span></div>
+    <div id="vec" class="mono">v = ⟨ 0.0, 0.0, 0.0 ⟩</div>
+  </div>
+  <div id="state" class="mono">∅ AIRBORNE</div>
+  <div id="pos" class="mono"></div>
+  <div id="banner" class="math">∎ Q.E.D.<small class="mono"></small></div>
+</div>
+
+<div id="overlay">
+  <div class="card">
+    <h1>MANIFLOW</h1>
+    <div class="sub mono">A SURF ACROSS THE PLANES</div>
+    <div class="eq math">v′ = v − (v·n̂)n̂</div>
+    <div class="keys mono">
+      <b>mouse</b> look &nbsp;·&nbsp; <b>A / D</b> strafe &nbsp;·&nbsp; <b>W / S</b> ground only<br>
+      <b>space</b> hop (hold to bunny-hop) &nbsp;·&nbsp; <b>R</b> reset run
+    </div>
+    <div class="hint math">don't fight the normal force — on a ramp, release W and steer with A/D + smooth mouse</div>
+    <div class="click mono">CLICK OR PRESS ENTER TO ENTER THE MANIFOLD</div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+/* ============================================================
+   MANIFLOW — a math-flavored surf game.
+   Source-style movement: Quake air-accelerate + velocity
+   clipping against convex plane sets. Surfing IS the clip:
+   v' = v - (v·n)n, with gravity resolving along the plane.
+   ============================================================ */
+
+const CFG = {
+  gravity: 23,
+  groundSpeed: 11, groundAccel: 10, friction: 6,
+  airCap: 1.0, airAccel: 120,
+  jump: 8.2,
+  radius: 0.8, eye: 0.7,
+  sens: 0.0021,
+  step: 1 / 120,
+  fovBase: 92, fovKick: 13,
+  killY: -50,
+};
+
+const COL = {
+  ink: 0x04040d,
+  cyan: 0x35e8ff,
+  magenta: 0xff3fa8,
+  lime: 0x8dff53,
+  violet: 0x9d6bff,
+  white: 0xeaf6ff,
+};
+
+/* ---------------- renderer / scene ---------------- */
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(COL.ink);
+const FOG = { color: new THREE.Color(COL.ink), density: 0.0055 };
+scene.fog = new THREE.FogExp2(FOG.color, FOG.density);
+
+const camera = new THREE.PerspectiveCamera(CFG.fovBase, innerWidth / innerHeight, 0.1, 900);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ---------------- graph-paper shader ---------------- */
+function gridMaterial(lineColor, baseColor = 0x080814, opts = {}) {
+  return new THREE.ShaderMaterial({
+    side: THREE.DoubleSide,
+    transparent: !!opts.transparent,
+    uniforms: {
+      uLine:  { value: new THREE.Color(lineColor) },
+      uBase:  { value: new THREE.Color(baseColor) },
+      uFogColor: { value: FOG.color },
+      uFogDensity: { value: FOG.density },
+      uMinor: { value: opts.minor ?? 1.0 },
+      uMajor: { value: opts.major ?? 5.0 },
+      uGlow:  { value: opts.glow ?? 1.0 },
+      uAlpha: { value: opts.alpha ?? 1.0 },
+    },
+    vertexShader: /* glsl */`
+      varying vec3 vW; varying vec3 vN; varying float vD;
+      void main() {
+        vec4 w = modelMatrix * vec4(position, 1.0);
+        vW = w.xyz;
+        vN = normalize(mat3(modelMatrix) * normal);
+        vec4 mv = viewMatrix * w;
+        vD = -mv.z;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: /* glsl */`
+      varying vec3 vW; varying vec3 vN; varying float vD;
+      uniform vec3 uLine, uBase, uFogColor;
+      uniform float uFogDensity, uMinor, uMajor, uGlow, uAlpha;
+      float gridLine(vec2 p, float s) {
+        vec2 q = p / s;
+        vec2 g = abs(fract(q - 0.5) - 0.5) / fwidth(q);
+        return 1.0 - min(min(g.x, g.y), 1.0);
+      }
+      void main() {
+        vec3 an = abs(normalize(vN));
+        vec3 w = pow(an, vec3(6.0));
+        w /= (w.x + w.y + w.z);
+        float minor = gridLine(vW.yz, uMinor) * w.x + gridLine(vW.xz, uMinor) * w.y + gridLine(vW.xy, uMinor) * w.z;
+        float major = gridLine(vW.yz, uMajor) * w.x + gridLine(vW.xz, uMajor) * w.y + gridLine(vW.xy, uMajor) * w.z;
+        float shade = 0.55 + 0.45 * max(vN.y, 0.0);
+        vec3 col = uBase * shade + uLine * (minor * 0.28 + major * 0.85) * uGlow;
+        float fogF = 1.0 - exp(-vD * vD * uFogDensity * uFogDensity);
+        col = mix(col, uFogColor, fogF);
+        gl_FragColor = vec4(col, uAlpha);
+      }`,
+  });
+}
+
+/* ---------------- convex prism geometry + colliders ----------------
+   Cross-section polygon in local XY (CCW), extruded from z=0 to z=-len,
+   then rotated (yaw about Y, pitch about X; pitch<0 descends) and moved. */
+const colliders = [];
+const worldGroup = new THREE.Group();
+scene.add(worldGroup);
+let planeCount = 0;
+
+function signedArea(pts) {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+    a += x1 * y2 - x2 * y1;
+  }
+  return a / 2;
+}
+
+function makePrism({ cross, pos, yaw = 0, pitch = 0, len, color, labelFaces = [] }) {
+  if (signedArea(cross) < 0) cross = cross.slice().reverse();
+  const M = new THREE.Matrix4().makeTranslation(pos[0], pos[1], pos[2])
+    .multiply(new THREE.Matrix4().makeRotationY(yaw))
+    .multiply(new THREE.Matrix4().makeRotationX(pitch));
+  const R = new THREE.Matrix3().setFromMatrix4(M);
+
+  const n = cross.length;
+  const tris = [];
+  const V = (x, y, z) => new THREE.Vector3(x, y, z).applyMatrix4(M);
+  // side quads
+  for (let i = 0; i < n; i++) {
+    const [x1, y1] = cross[i], [x2, y2] = cross[(i + 1) % n];
+    const A = V(x1, y1, 0), B = V(x2, y2, 0), C = V(x2, y2, -len), D = V(x1, y1, -len);
+    tris.push(A, C, B, A, D, C);
+  }
+  // caps
+  for (let i = 1; i < n - 1; i++) {
+    const a = V(cross[0][0], cross[0][1], 0), b = V(cross[i][0], cross[i][1], 0), c = V(cross[i + 1][0], cross[i + 1][1], 0);
+    tris.push(a, b, c); // near cap (+z)
+    const a2 = V(cross[0][0], cross[0][1], -len), b2 = V(cross[i][0], cross[i][1], -len), c2 = V(cross[i + 1][0], cross[i + 1][1], -len);
+    tris.push(a2, c2, b2); // far cap (-z)
+  }
+  const posArr = new Float32Array(tris.length * 3);
+  tris.forEach((v, i) => v.toArray(posArr, i * 3));
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+  geo.computeVertexNormals();
+
+  const mesh = new THREE.Mesh(geo, gridMaterial(color));
+  worldGroup.add(mesh);
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geo, 12),
+    new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 })
+  );
+  worldGroup.add(edges);
+
+  // collider planes: sides + caps
+  const planes = [];
+  for (let i = 0; i < n; i++) {
+    const [x1, y1] = cross[i], [x2, y2] = cross[(i + 1) % n];
+    const dx = x2 - x1, dy = y2 - y1;
+    const nl = new THREE.Vector3(dy, -dx, 0).normalize().applyMatrix3(R).normalize();
+    const p = V(x1, y1, 0);
+    planes.push({ n: nl, d: nl.dot(p), edge: i });
+  }
+  const nNear = new THREE.Vector3(0, 0, 1).applyMatrix3(R).normalize();
+  planes.push({ n: nNear, d: nNear.dot(V(0, 0, 0)), edge: -1 });
+  const nFar = new THREE.Vector3(0, 0, -1).applyMatrix3(R).normalize();
+  planes.push({ n: nFar, d: nFar.dot(V(0, 0, -len)), edge: -2 });
+  colliders.push({ planes });
+
+  // floating plane-equation labels for chosen faces
+  for (const fi of labelFaces) {
+    const [x1, y1] = cross[fi], [x2, y2] = cross[(fi + 1) % n];
+    const pl = planes[fi];
+    const mid = V((x1 + x2) / 2, (y1 + y2) / 2, -len / 2).addScaledVector(pl.n, 2.4);
+    planeCount++;
+    const sub = '₁₂₃₄₅₆₇₈₉'[planeCount - 1] ?? '';
+    addSprite(planeEq(pl.n, pl.d, sub), mid, { color: '#' + new THREE.Color(color).getHexString(), size: 42, scale: 9, italic: true });
+  }
+  return { mesh, planes, M };
+}
+
+function planeEq(nv, d, sub) {
+  const f = v => Math.abs(v).toFixed(2);
+  const terms = [];
+  [['x', nv.x], ['y', nv.y], ['z', nv.z]].forEach(([ax, v]) => {
+    if (Math.abs(v) < 0.005) return;
+    terms.push((v < 0 ? ' − ' : (terms.length ? ' + ' : '')) + f(v) + ax);
+  });
+  return `Π${sub} : ${terms.join('')} = ${d.toFixed(1)}`;
+}
+
+/* ---------------- sprites (canvas text) ---------------- */
+function addSprite(text, position, { color = '#35e8ff', size = 48, scale = 8, italic = false, opacity = 1 } = {}) {
+  const cv = document.createElement('canvas');
+  const ctx = cv.getContext('2d');
+  const font = `${italic ? 'italic ' : ''}${size}px "STIX Two Math", "Cambria Math", Georgia, serif`;
+  ctx.font = font;
+  const w = Math.ceil(ctx.measureText(text).width) + 40;
+  cv.width = w; cv.height = size * 1.8;
+  ctx.font = font;
+  ctx.fillStyle = color;
+  ctx.shadowColor = color; ctx.shadowBlur = size / 4;
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 20, cv.height / 2);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: tex, transparent: true, opacity, depthWrite: false,
+  }));
+  spr.scale.set(scale * cv.width / cv.height, scale, 1);
+  spr.position.copy(position);
+  scene.add(spr);
+  return spr;
+}
+
+/* ================= THE COURSE ================= */
+// Stage 0 — start platform (top at y = 40, z ∈ [8, -8])
+makePrism({
+  cross: [[-7, 2], [7, 2], [7, -2], [-7, -2]],
+  pos: [0, 38, 8], len: 16, color: COL.cyan,
+});
+
+// Stage 1 — the great ridge Π (peak prism), descending 8°
+makePrism({
+  cross: [[0, 0], [-12, -16], [12, -16]],
+  pos: [0, 36, -14], pitch: -8 * Math.PI / 180, len: 80,
+  color: COL.magenta, labelFaces: [0, 2],
+});
+
+// Stage 2 — the valley ∨ (two slabs, descending 6°), catches you after the gap
+const VY = 27, VZ = -110, VLEN = 72, VP = -6 * Math.PI / 180;
+makePrism({ // left wall
+  cross: [[-15, 0], [-15, -2.5], [0, -22.5], [0, -20]],
+  pos: [0, VY, VZ], pitch: VP, len: VLEN, color: COL.cyan, labelFaces: [3],
+});
+makePrism({ // right wall
+  cross: [[0, -20], [0, -22.5], [15, -2.5], [15, 0]],
+  pos: [0, VY, VZ], pitch: VP, len: VLEN, color: COL.cyan,
+});
+
+// Stage 3 — landing / finish platform
+makePrism({
+  cross: [[-18, 2], [18, 2], [18, -2], [-18, -2]],
+  pos: [0, -6, -190], len: 36, color: COL.lime,
+});
+
+/* checkpoints: zones set respawn; index 0 is the start */
+const checkpoints = [
+  { spawn: [3.5, 42, 4], yaw: 0 },
+  { zone: { min: [-17, -2, -136], max: [17, 34, -108] }, spawn: [2, 32, -114], yaw: 0 },
+];
+const finishZone = { min: [-18, -4, -224], max: [18, 8, -192] };
+
+/* finish rings + label */
+for (let i = 0; i < 3; i++) {
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(5.5, 0.12, 10, 64),
+    new THREE.MeshBasicMaterial({ color: COL.lime, transparent: true, opacity: 0.85 - i * 0.2, blending: THREE.AdditiveBlending })
+  );
+  ring.position.set(0, 0, -197 - i * 9);
+  scene.add(ring);
+}
+addSprite('lim t→∞', new THREE.Vector3(0, 8.5, -206), { color: '#8dff53', size: 52, scale: 5, italic: true });
+
+/* ---------------- decorations ---------------- */
+// abyss graph paper
+const abyss = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600),
+  gridMaterial(0x1a5f8a, 0x05050f, { minor: 4, major: 20, glow: 0.8 }));
+abyss.rotation.x = -Math.PI / 2;
+abyss.position.set(0, -70, -110);
+scene.add(abyss);
+
+// origin gizmo on the start platform: x̂ ŷ ẑ
+const gizmoAt = new THREE.Vector3(-4.5, 40.05, 2);
+const axes = [
+  [new THREE.Vector3(1, 0, 0), COL.magenta, 'x̂'],
+  [new THREE.Vector3(0, 1, 0), COL.lime, 'ŷ'],
+  [new THREE.Vector3(0, 0, -1), COL.cyan, 'ẑ'],
+];
+for (const [dir, c, name] of axes) {
+  scene.add(new THREE.ArrowHelper(dir, gizmoAt, 2.2, c, 0.5, 0.25));
+  addSprite(name, gizmoAt.clone().addScaledVector(dir, 2.9), { color: '#' + new THREE.Color(c).getHexString(), size: 44, scale: 1.1, italic: true });
+}
+
+// starfield (scatter plot of the void)
+{
+  const N = 1600, arr = new Float32Array(N * 3), ctr = new THREE.Vector3(0, 10, -110);
+  for (let i = 0; i < N; i++) {
+    const v = new THREE.Vector3().randomDirection().multiplyScalar(160 + Math.random() * 320).add(ctr);
+    v.toArray(arr, i * 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({
+    color: 0x9ecfff, size: 0.9, transparent: true, opacity: 0.75,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  })));
+}
+
+// giant slow wireframes drifting in the fog
+const spinners = [];
+function addSpinner(geo, color, pos, rate) {
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    color, wireframe: true, transparent: true, opacity: 0.14, blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  m.position.copy(pos);
+  scene.add(m);
+  spinners.push({ m, rate });
+}
+addSpinner(new THREE.IcosahedronGeometry(26, 1), COL.violet, new THREE.Vector3(72, 26, -120), 0.05);
+addSpinner(new THREE.TorusKnotGeometry(16, 4, 90, 12), COL.magenta, new THREE.Vector3(-78, 42, -60), 0.08);
+addSpinner(new THREE.OctahedronGeometry(20, 0), COL.cyan, new THREE.Vector3(60, -2, -210), 0.06);
+
+// a parametric helix beside the valley: r(t) = ⟨a·cos t, bt, a·sin t⟩
+{
+  const pts = [];
+  for (let t = 0; t <= Math.PI * 10; t += 0.05)
+    pts.push(new THREE.Vector3(-46 + 9 * Math.cos(t), 4 + t * 2.2, -150 + 9 * Math.sin(t)));
+  const line = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color: COL.violet, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending })
+  );
+  scene.add(line);
+  addSprite('r(t) = ⟨a cos t,  bt,  a sin t⟩', new THREE.Vector3(-46, 84, -150), { color: '#9d6bff', size: 40, scale: 6, italic: true });
+}
+
+// floating glyphs of the manifold
+const GLYPHS = [
+  ['∇', [30, 48, -40]], ['∂', [-34, 30, -80]], ['∑', [40, 18, -140]],
+  ['∫', [-38, 8, -170]], ['π', [26, 2, -190]], ['∞', [0, 26, -260]], ['λ', [-24, 46, -20]],
+];
+for (const [g, p] of GLYPHS)
+  addSprite(g, new THREE.Vector3(...p), { color: '#35e8ff', size: 120, scale: 7, italic: true, opacity: 0.16 });
+
+/* ================= PLAYER / PHYSICS ================= */
+const player = {
+  pos: new THREE.Vector3(), vel: new THREE.Vector3(),
+  yaw: 0, pitch: 0,
+  grounded: false, surfing: false, groundNormal: null,
+};
+const state = {
+  cp: 0, started: false, finished: false, time: 0,
+  best: parseFloat(localStorage.getItem('maniflow-best')) || null,
+};
+const banner = document.getElementById('banner');
+
+function respawn(cpIndex, fullReset = false) {
+  const cp = checkpoints[cpIndex];
+  player.pos.set(cp.spawn[0], cp.spawn[1], cp.spawn[2]);
+  player.vel.set(0, 0, 0);
+  player.yaw = cp.yaw; player.pitch = 0;
+  if (fullReset) {
+    state.cp = 0; state.started = false; state.finished = false; state.time = 0;
+    banner.style.display = 'none';
+  }
+}
+respawn(0, true);
+
+const keys = new Set();
+addEventListener('keydown', e => {
+  if (e.code === 'Space') e.preventDefault();
+  if ((e.code === 'Enter' || e.code === 'NumpadEnter') && !document.pointerLockElement) {
+    renderer.domElement.requestPointerLock();
+    return;
+  }
+  keys.add(e.code);
+  if (e.code === 'KeyR') respawn(0, true);
+});
+addEventListener('keyup', e => keys.delete(e.code));
+
+/* pointer lock */
+const overlay = document.getElementById('overlay');
+overlay.addEventListener('click', () => renderer.domElement.requestPointerLock());
+document.addEventListener('pointerlockchange', () => {
+  overlay.style.display = document.pointerLockElement ? 'none' : 'flex';
+});
+document.addEventListener('mousemove', e => {
+  if (!document.pointerLockElement) return;
+  player.yaw -= e.movementX * CFG.sens;
+  player.pitch = THREE.MathUtils.clamp(player.pitch - e.movementY * CFG.sens, -1.55, 1.55);
+});
+
+function accelerate(wish, wishSpeed, accel, dt) {
+  const cur = player.vel.x * wish.x + player.vel.z * wish.z;
+  const add = wishSpeed - cur;
+  if (add <= 0) return;
+  const a = Math.min(accel * wishSpeed * dt, add);
+  player.vel.x += wish.x * a;
+  player.vel.z += wish.z * a;
+}
+
+function collide() {
+  player.grounded = false;
+  player.surfing = false;
+  player.groundNormal = null;
+  for (let iter = 0; iter < 4; iter++) {
+    let hit = false;
+    for (const c of colliders) {
+      let maxD = -Infinity, best = null, inside = true;
+      for (const pl of c.planes) {
+        const dist = pl.n.dot(player.pos) - pl.d;
+        if (dist >= CFG.radius) { inside = false; break; }
+        if (dist > maxD) { maxD = dist; best = pl; }
+      }
+      if (!inside) continue;
+      player.pos.addScaledVector(best.n, CFG.radius - maxD);
+      const vn = player.vel.dot(best.n);
+      if (vn < 0) player.vel.addScaledVector(best.n, -vn);
+      if (best.n.y > 0.7) { player.grounded = true; player.groundNormal = best.n; }
+      else if (best.n.y > 0.05) { player.surfing = true; player.groundNormal = best.n; }
+      hit = true;
+    }
+    if (!hit) break;
+  }
+}
+
+function step(dt) {
+  // wish direction from yaw (horizontal only)
+  const f = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
+  const s = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
+  const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
+  const wish = new THREE.Vector3(cos * s - sin * f, 0, -sin * s - cos * f);
+  if (wish.lengthSq() > 0) wish.normalize();
+
+  let jumped = false;
+  if (player.grounded && keys.has('Space')) {
+    player.vel.y = Math.max(player.vel.y, CFG.jump);
+    player.grounded = false;
+    jumped = true;
+  }
+
+  if (player.grounded && !jumped) {
+    const sp = Math.hypot(player.vel.x, player.vel.z);
+    if (sp > 0.1) {
+      const drop = sp * CFG.friction * dt;
+      const k = Math.max(sp - drop, 0) / sp;
+      player.vel.x *= k; player.vel.z *= k;
+    } else { player.vel.x = 0; player.vel.z = 0; }
+    accelerate(wish, CFG.groundSpeed, CFG.groundAccel, dt);
+  } else {
+    accelerate(wish, CFG.airCap, CFG.airAccel, dt);
+  }
+
+  player.vel.y -= CFG.gravity * dt;
+  player.pos.addScaledVector(player.vel, dt);
+  collide();
+
+  // run state
+  if (state.started && !state.finished) state.time += dt;
+  if (!state.started && player.pos.z < -9) state.started = true;
+
+  for (let i = 1; i < checkpoints.length; i++) {
+    const z = checkpoints[i].zone;
+    if (inBox(player.pos, z)) state.cp = Math.max(state.cp, i);
+  }
+  if (!state.finished && state.started && inBox(player.pos, finishZone)) finish();
+  if (player.pos.y < CFG.killY) respawn(state.cp);
+}
+
+function inBox(p, b) {
+  return p.x > b.min[0] && p.x < b.max[0] && p.y > b.min[1] && p.y < b.max[1] && p.z > b.min[2] && p.z < b.max[2];
+}
+
+function finish() {
+  state.finished = true;
+  const t = state.time;
+  let msg = `t = ${fmt(t)}`;
+  if (state.best === null || t < state.best) {
+    state.best = t;
+    localStorage.setItem('maniflow-best', String(t));
+    msg += '  —  inf achieved (new best)';
+  } else {
+    msg += `  —  inf = ${fmt(state.best)}`;
+  }
+  banner.querySelector('small').textContent = msg + '   ·   press R to run again';
+  banner.style.display = 'block';
+}
+
+/* ================= HUD ================= */
+const el = id => document.getElementById(id);
+const hud = { timer: el('timer'), best: el('best'), speed: el('speed'), vec: el('vec'), state: el('state'), pos: el('pos') };
+function fmt(t) {
+  const m = Math.floor(t / 60), s = t - m * 60;
+  return `${m}:${s.toFixed(3).padStart(6, '0')}`;
+}
+function updateHUD() {
+  hud.timer.textContent = fmt(state.time);
+  hud.best.textContent = state.best !== null ? `inf t = ${fmt(state.best)}` : '';
+  const v = player.vel;
+  const hsp = Math.hypot(v.x, v.z);
+  hud.speed.innerHTML = `${hsp.toFixed(1)}<span class="unit"> u/s</span>`;
+  hud.vec.textContent = `v = ⟨ ${v.x.toFixed(1)}, ${v.y.toFixed(1)}, ${v.z.toFixed(1)} ⟩   ‖v‖ = ${v.length().toFixed(1)}`;
+  hud.pos.textContent = `p = (${player.pos.x.toFixed(1)}, ${player.pos.y.toFixed(1)}, ${player.pos.z.toFixed(1)})`;
+  if (player.surfing) {
+    hud.state.textContent = '∂Ω SURFING';
+    hud.state.style.color = 'var(--magenta)';
+    hud.state.style.textShadow = '0 0 10px rgba(255,63,168,.8)';
+  } else if (player.grounded) {
+    hud.state.textContent = '𝔾 GROUNDED';
+    hud.state.style.color = 'var(--cyan)';
+    hud.state.style.textShadow = '0 0 10px rgba(53,232,255,.6)';
+  } else {
+    hud.state.textContent = '∅ AIRBORNE';
+    hud.state.style.color = 'rgba(234,246,255,.85)';
+    hud.state.style.textShadow = '0 0 8px rgba(234,246,255,.4)';
+  }
+  const glow = Math.min(hsp / 45, 1);
+  hud.speed.style.color = `rgb(${223 + glow * 32}, ${246 - glow * 120}, ${255 - glow * 87})`;
+}
+
+/* ================= MAIN LOOP ================= */
+let last = performance.now(), acc = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  let dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+  acc += dt;
+  while (acc >= CFG.step) { step(CFG.step); acc -= CFG.step; }
+
+  // camera
+  camera.position.copy(player.pos).y += CFG.eye;
+  const rightVel = player.vel.x * Math.cos(player.yaw) - player.vel.z * Math.sin(player.yaw);
+  const roll = THREE.MathUtils.clamp(-rightVel * 0.0011, -0.045, 0.045);
+  camera.rotation.set(player.pitch, player.yaw, roll, 'YXZ');
+  const hsp = Math.hypot(player.vel.x, player.vel.z);
+  const targetFov = CFG.fovBase + Math.min(hsp / 45, 1) * CFG.fovKick;
+  camera.fov += (targetFov - camera.fov) * Math.min(dt * 8, 1);
+  camera.updateProjectionMatrix();
+
+  for (const s of spinners) { s.m.rotation.y += s.rate * dt; s.m.rotation.x += s.rate * 0.6 * dt; }
+
+  updateHUD();
+  renderer.render(scene, camera);
+}
+requestAnimationFrame(frame);
+
+/* debug / automation hooks */
+window.__game = { player, state, CFG, respawn, keys, camera,
+  teleport(x, y, z, yaw = 0, pitch = 0) {
+    player.pos.set(x, y, z); player.vel.set(0, 0, 0);
+    player.yaw = yaw; player.pitch = pitch;
+  },
+};
+</script>
+</body>
+</html>
